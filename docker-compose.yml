@@ -1,0 +1,16 @@
+services:
+  vectordb:
+    image: pgvector/pgvector:pg16
+    container_name: massenergize-vectordb
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: aiservice
+      POSTGRES_PASSWORD: localdev_change_me
+      POSTGRES_DB: massenergize_ai
+    ports:
+      - "5433:5432"
+    volumes:
+      - vectordb_data:/var/lib/postgresql/data
+
+volumes:
+  vectordb_data:
