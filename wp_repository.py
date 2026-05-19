@@ -29,8 +29,8 @@ class WPAction:
     deep_dive_text: Optional[str]
     is_featured: bool
     display_order: Optional[int]
-    category: Optional[str]
-    sub_category: Optional[str]
+    classifications: list[str]
+    url: str
     status: str
     modified_at: datetime
 
@@ -101,32 +101,37 @@ def _table(site_id: int, table: str) -> str:
 
 
 def get_actions(site_id: int) -> list[WPAction]:
-    """Fetch all published actions for a given site."""
+    """Fetch all published actions for a given site, with classifications."""
     posts_table = _table(site_id, "posts")
     meta_table = _table(site_id, "postmeta")
 
     sql = f"""
-        SELECT
-            p.ID,
-            p.post_title,
-            p.post_content,
-            p.post_status,
-            p.post_modified,
-            MAX(CASE WHEN pm.meta_key = 'Steps_to_take' THEN pm.meta_value END) AS steps_to_take,
-            MAX(CASE WHEN pm.meta_key = 'deep_dive' THEN pm.meta_value END) AS deep_dive,
-            MAX(CASE WHEN pm.meta_key = 'is_featured' THEN pm.meta_value END) AS is_featured,
-            MAX(CASE WHEN pm.meta_key = 'display_order' THEN pm.meta_value END) AS display_order
-        FROM {posts_table} p
-        LEFT JOIN {meta_table} pm ON p.ID = pm.post_id
-        WHERE p.post_type = 'actions'
-          AND p.post_status = 'publish'
-        GROUP BY p.ID, p.post_title, p.post_content, p.post_status, p.post_modified
-        ORDER BY p.ID
-    """
+    SELECT
+        p.ID,
+        p.post_title,
+        p.post_name,
+        p.post_content,
+        p.post_status,
+        p.post_modified,
+        MAX(CASE WHEN pm.meta_key = 'Steps_to_take' THEN pm.meta_value END) AS steps_to_take,
+        MAX(CASE WHEN pm.meta_key = 'deep_dive' THEN pm.meta_value END) AS deep_dive,
+        MAX(CASE WHEN pm.meta_key = 'is_featured' THEN pm.meta_value END) AS is_featured,
+        MAX(CASE WHEN pm.meta_key = 'display_order' THEN pm.meta_value END) AS display_order
+    FROM {posts_table} p
+    LEFT JOIN {meta_table} pm ON p.ID = pm.post_id
+    WHERE p.post_type = 'actions'
+      AND p.post_status = 'publish'
+    GROUP BY p.ID, p.post_title, p.post_name, p.post_content, p.post_status, p.post_modified
+    ORDER BY p.ID
+"""
 
     with wp_cursor() as cur:
         cur.execute(sql)
         rows = cur.fetchall()
+
+        action_ids = [row["ID"] for row in rows]
+        classifications_map = _fetch_classifications(cur, site_id, action_ids)
+        site_domain = _get_site_domain(cur, site_id)
 
     return [
         WPAction(
@@ -141,8 +146,8 @@ def get_actions(site_id: int) -> list[WPAction]:
             deep_dive_text=_strip_html(row["deep_dive"]),
             is_featured=row["is_featured"] == "1",
             display_order=int(row["display_order"]) if row["display_order"] else None,
-            category=None,  # filled in by taxonomy lookup later
-            sub_category=None,
+            classifications=classifications_map.get(row["ID"], []),
+            url=f"{site_domain}actions/{row['post_name']}",
             status=row["post_status"],
             modified_at=row["post_modified"],
         )
@@ -295,6 +300,18 @@ def get_events(site_id: int) -> list[WPEvent]:
     return events
 
 
+def _get_site_domain(cur, site_id: int) -> str:
+    """Fetch the domain for a given multisite blog ID from wp_blogs."""
+    cur.execute(
+        "SELECT domain, path FROM wp_blogs WHERE blog_id = %s",
+        (site_id,),
+    )
+    row = cur.fetchone()
+    if not row:
+        raise ValueError(f"No site found with blog_id={site_id}")
+    return f"https://{row['domain']}{row['path']}"
+
+
 # =========================================================
 # Internal helpers for events
 # =========================================================
@@ -364,6 +381,38 @@ def _fetch_organizers(cur, site_id: int, organizer_ids: set[int]) -> dict[int, d
         row["ID"]: {"name": row["post_title"], "email": row["email"]}
         for row in cur.fetchall()
     }
+
+
+def _fetch_classifications(
+    cur, site_id: int, action_ids: list[int]
+) -> dict[int, list[str]]:
+    """Return {action_post_id: [classification_slug, ...]} for the requested actions."""
+    if not action_ids:
+        return {}
+
+    terms_table = _table(site_id, "terms")
+    tt_table = _table(site_id, "term_taxonomy")
+    tr_table = _table(site_id, "term_relationships")
+    placeholders = ",".join(["%s"] * len(action_ids))
+
+    cur.execute(
+        f"""
+        SELECT
+            tr.object_id AS action_id,
+            t.slug AS classification
+        FROM {tr_table} tr
+        JOIN {tt_table} tt ON tr.term_taxonomy_id = tt.term_taxonomy_id
+        JOIN {terms_table} t ON tt.term_id = t.term_id
+        WHERE tt.taxonomy = 'classifications'
+          AND tr.object_id IN ({placeholders})
+        """,
+        action_ids,
+    )
+
+    result: dict[int, list[str]] = {aid: [] for aid in action_ids}
+    for row in cur.fetchall():
+        result[row["action_id"]].append(row["classification"])
+    return result
 
 
 def _parse_dt(s: Optional[str]) -> Optional[datetime]:

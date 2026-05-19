@@ -1,8 +1,16 @@
 from datetime import datetime
 from uuid import uuid4
+from sqlalchemy.dialects.postgresql import ARRAY, UUID
 
 from sqlalchemy import (
-    Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -31,8 +39,11 @@ class Action(Base):
     is_featured: Mapped[bool] = mapped_column(Boolean, default=False)
     display_order: Mapped[int | None] = mapped_column(Integer)
 
-    category: Mapped[str | None] = mapped_column(String)
-    sub_category: Mapped[str | None] = mapped_column(String)
+    # category: Mapped[str | None] = mapped_column(String)
+    # sub_category: Mapped[str | None] = mapped_column(String)
+    classifications: Mapped[list[str]] = mapped_column(
+        ARRAY(String), nullable=False, default=list, server_default="{}"
+    )
 
     url: Mapped[str | None] = mapped_column(String)
     status: Mapped[str] = mapped_column(String, nullable=False)
@@ -45,7 +56,11 @@ class Action(Base):
 
     __table_args__ = (
         UniqueConstraint("site_id", "wp_post_id", name="uq_actions_site_post"),
-        Index("idx_actions_category", "site_id", "category"),
+        Index(
+            "idx_actions_classifications",
+            "classifications",
+            postgresql_using="gin",
+        ),
     )
 
 
@@ -142,7 +157,9 @@ class Embedding(Base):
 
     __table_args__ = (
         UniqueConstraint(
-            "content_type", "content_id", "chunk_index",
+            "content_type",
+            "content_id",
+            "chunk_index",
             name="uq_embeddings_content_chunk",
         ),
     )
