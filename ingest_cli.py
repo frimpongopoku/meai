@@ -19,10 +19,12 @@ def main():
     for site_id in site_ids:
         print(f"\n=== Ingesting actions for site {site_id} ===")
         stats = ingest_actions(site_id)
-        print(f"  Total:     {stats['total']}")
-        print(f"  Inserted:  {stats['inserted']}")
-        print(f"  Updated:   {stats['updated']}")
-        print(f"  Unchanged: {stats['unchanged']}")
+        print(f"  In WP:      {stats['total_in_wp']}")
+        print(f"  Inserted:   {stats['inserted']}")
+        print(f"  Updated:    {stats['updated']}")
+        print(f"  Unchanged:  {stats['unchanged']}")
+        print(f"  Archived:   {stats['archived']}")
+        print(f"  Unarchived: {stats['unarchived']}")
 
 
 if __name__ == "__main__":

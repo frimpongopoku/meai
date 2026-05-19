@@ -53,6 +53,7 @@ class Action(Base):
     ingested_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow
     )
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     __table_args__ = (
         UniqueConstraint("site_id", "wp_post_id", name="uq_actions_site_post"),
@@ -91,6 +92,7 @@ class Testimonial(Base):
     ingested_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow
     )
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     __table_args__ = (
         UniqueConstraint("site_id", "wp_post_id", name="uq_testimonials_site_post"),
@@ -130,6 +132,7 @@ class Event(Base):
     ingested_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow
     )
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     __table_args__ = (
         UniqueConstraint("site_id", "wp_post_id", name="uq_events_site_post"),
