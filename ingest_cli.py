@@ -6,7 +6,17 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from ingest import ingest_actions
+from ingest import ingest_actions, ingest_testimonials
+
+
+def print_stats(label: str, stats: dict) -> None:
+    print(f"  {label}:")
+    print(f"    In WP:      {stats['total_in_wp']}")
+    print(f"    Inserted:   {stats['inserted']}")
+    print(f"    Updated:    {stats['updated']}")
+    print(f"    Unchanged:  {stats['unchanged']}")
+    print(f"    Archived:   {stats['archived']}")
+    print(f"    Unarchived: {stats['unarchived']}")
 
 
 def main():
@@ -17,14 +27,13 @@ def main():
     site_ids = [int(arg) for arg in sys.argv[1:]]
 
     for site_id in site_ids:
-        print(f"\n=== Ingesting actions for site {site_id} ===")
-        stats = ingest_actions(site_id)
-        print(f"  In WP:      {stats['total_in_wp']}")
-        print(f"  Inserted:   {stats['inserted']}")
-        print(f"  Updated:    {stats['updated']}")
-        print(f"  Unchanged:  {stats['unchanged']}")
-        print(f"  Archived:   {stats['archived']}")
-        print(f"  Unarchived: {stats['unarchived']}")
+        print(f"\n=== Site {site_id} ===")
+
+        action_stats = ingest_actions(site_id)
+        print_stats("Actions", action_stats)
+
+        testimonial_stats = ingest_testimonials(site_id)
+        print_stats("Testimonials", testimonial_stats)
 
 
 if __name__ == "__main__":

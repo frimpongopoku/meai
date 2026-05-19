@@ -10,6 +10,8 @@ from db import db_session
 from hashing import compute_content_hash
 from models import Action
 from wp_repository import WPAction, get_actions
+from models import Action, Testimonial
+from wp_repository import WPAction, WPTestimonial, get_actions, get_testimonials
 
 
 def _action_hash(wp_action: WPAction) -> str:
@@ -24,6 +26,31 @@ def _action_hash(wp_action: WPAction) -> str:
         sorted(wp_action.classifications),
         wp_action.url,
     )
+
+
+def _testimonial_hash(wp_testimonial: WPTestimonial) -> str:
+    """Compute a content hash for a testimonial based on its meaningful fields."""
+    return compute_content_hash(
+        wp_testimonial.title or "",
+        wp_testimonial.body_text,
+        wp_testimonial.submitted_by or "",
+        wp_testimonial.display_name or "",
+        wp_testimonial.related_action_wp_post_id,
+        wp_testimonial.display_order,
+    )
+
+
+def _resolve_action_id(session, site_id: int, wp_post_id: int | None) -> str | None:
+    """Look up the internal UUID for an action given its WP post ID."""
+    if wp_post_id is None:
+        return None
+    result = session.execute(
+        select(Action.id).where(
+            Action.site_id == site_id,
+            Action.wp_post_id == wp_post_id,
+        )
+    ).scalar_one_or_none()
+    return result
 
 
 def ingest_actions(site_id: int) -> dict:
@@ -116,6 +143,99 @@ def ingest_actions(site_id: int) -> dict:
                     Action.site_id == site_id,
                     Action.archived_at.is_(None),
                     Action.wp_post_id.notin_(seen_wp_post_ids),
+                )
+                .values(archived_at=datetime.utcnow())
+            )
+            stats["archived"] = result.rowcount  # type: ignore[attr-defined]
+
+    return stats
+
+
+def ingest_testimonials(site_id: int) -> dict:
+    """Ingest all published testimonials for a site into pgvector.
+
+    Returns a summary dict with counts: inserted, updated, unchanged, archived, unarchived.
+    """
+    wp_testimonials = get_testimonials(site_id)
+    stats = {
+        "inserted": 0,
+        "updated": 0,
+        "unchanged": 0,
+        "archived": 0,
+        "unarchived": 0,
+        "total_in_wp": len(wp_testimonials),
+    }
+
+    seen_wp_post_ids = {wp.wp_post_id for wp in wp_testimonials}
+
+    with db_session() as session:
+        for wp_testimonial in wp_testimonials:
+            new_hash = _testimonial_hash(wp_testimonial)
+            related_action_id = _resolve_action_id(
+                session, site_id, wp_testimonial.related_action_wp_post_id
+            )
+
+            existing = session.execute(
+                select(Testimonial).where(
+                    Testimonial.site_id == site_id,
+                    Testimonial.wp_post_id == wp_testimonial.wp_post_id,
+                )
+            ).scalar_one_or_none()
+
+            if existing is None:
+                session.add(
+                    Testimonial(
+                        site_id=site_id,
+                        wp_post_id=wp_testimonial.wp_post_id,
+                        title=wp_testimonial.title,
+                        body_html=wp_testimonial.body_html,
+                        body_text=wp_testimonial.body_text,
+                        submitted_by=wp_testimonial.submitted_by,
+                        display_name=wp_testimonial.display_name,
+                        related_action_wp_post_id=wp_testimonial.related_action_wp_post_id,
+                        related_action_id=related_action_id,
+                        display_order=wp_testimonial.display_order,
+                        status=wp_testimonial.status,
+                        modified_at=wp_testimonial.modified_at,
+                        content_hash=new_hash,
+                        ingested_at=datetime.utcnow(),
+                    )
+                )
+                stats["inserted"] += 1
+            else:
+                was_archived = existing.archived_at is not None
+                if was_archived:
+                    existing.archived_at = None
+                    stats["unarchived"] += 1
+
+                if existing.content_hash == new_hash and not was_archived:
+                    stats["unchanged"] += 1
+                else:
+                    existing.title = wp_testimonial.title
+                    existing.body_html = wp_testimonial.body_html
+                    existing.body_text = wp_testimonial.body_text
+                    existing.submitted_by = wp_testimonial.submitted_by
+                    existing.display_name = wp_testimonial.display_name
+                    existing.related_action_wp_post_id = (
+                        wp_testimonial.related_action_wp_post_id
+                    )
+                    existing.related_action_id = related_action_id
+                    existing.display_order = wp_testimonial.display_order
+                    existing.status = wp_testimonial.status
+                    existing.modified_at = wp_testimonial.modified_at
+                    existing.content_hash = new_hash
+                    existing.ingested_at = datetime.utcnow()
+                    if not was_archived:
+                        stats["updated"] += 1
+
+        # Archive sweep
+        if seen_wp_post_ids:
+            result = session.execute(
+                update(Testimonial)
+                .where(
+                    Testimonial.site_id == site_id,
+                    Testimonial.archived_at.is_(None),
+                    Testimonial.wp_post_id.notin_(seen_wp_post_ids),
                 )
                 .values(archived_at=datetime.utcnow())
             )
