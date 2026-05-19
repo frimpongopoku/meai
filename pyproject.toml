@@ -13,4 +13,5 @@ dependencies = [
     "python-dotenv>=1.2.2",
     "sqlalchemy>=2.0.49",
     "sshtunnel>=0.4.0",
+    "voyageai>=0.3.7",
 ]

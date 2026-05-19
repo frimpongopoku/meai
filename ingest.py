@@ -21,6 +21,8 @@ from wp_repository import (
     get_events,
     get_testimonials,
 )
+from sqlalchemy import delete, select, update
+from models import Action, Embedding, Event, Testimonial
 
 
 def _action_hash(wp_action: WPAction) -> str:
@@ -48,6 +50,7 @@ def _testimonial_hash(wp_testimonial: WPTestimonial) -> str:
         wp_testimonial.display_order,
     )
 
+
 def _event_hash(wp_event: WPEvent) -> str:
     """Compute a content hash for an event based on its meaningful fields."""
     return compute_content_hash(
@@ -63,6 +66,7 @@ def _event_hash(wp_event: WPEvent) -> str:
         wp_event.event_url or "",
         wp_event.cost or "",
     )
+
 
 def _resolve_action_id(session, site_id: int, wp_post_id: int | None) -> str | None:
     """Look up the internal UUID for an action given its WP post ID."""
@@ -132,6 +136,7 @@ def ingest_actions(site_id: int) -> dict:
             else:
                 # Unarchive if it was previously archived
                 was_archived = existing.archived_at is not None
+                title_changed = existing.title != wp_action.title
                 if was_archived:
                     existing.archived_at = None
                     stats["unarchived"] += 1
@@ -154,6 +159,34 @@ def ingest_actions(site_id: int) -> dict:
                     existing.modified_at = wp_action.modified_at
                     existing.content_hash = new_hash
                     existing.ingested_at = datetime.utcnow()
+                    # Content changed → invalidate this action's embeddings
+                    session.execute(
+                        delete(Embedding).where(
+                            Embedding.content_type == "action",
+                            Embedding.content_id == existing.id,
+                        )
+                    )
+
+                    # If the title changed, also invalidate testimonials that reference this action
+                    # (because they include the action title in their embedded text)
+                    if title_changed:
+                        related_testimonials = (
+                            session.execute(
+                                select(Testimonial.id).where(
+                                    Testimonial.site_id == site_id,
+                                    Testimonial.related_action_id == existing.id,
+                                )
+                            )
+                            .scalars()
+                            .all()
+                        )
+                        if related_testimonials:
+                            session.execute(
+                                delete(Embedding).where(
+                                    Embedding.content_type == "testimonial",
+                                    Embedding.content_id.in_(related_testimonials),
+                                )
+                            )
                     if not was_archived:
                         stats["updated"] += 1
 
@@ -249,6 +282,13 @@ def ingest_testimonials(site_id: int) -> dict:
                     existing.modified_at = wp_testimonial.modified_at
                     existing.content_hash = new_hash
                     existing.ingested_at = datetime.utcnow()
+                    # Invalidate this testimonial's embeddings
+                    session.execute(
+                        delete(Embedding).where(
+                            Embedding.content_type == "testimonial",
+                            Embedding.content_id == existing.id,
+                        )
+                    )
                     if not was_archived:
                         stats["updated"] += 1
 
@@ -266,6 +306,7 @@ def ingest_testimonials(site_id: int) -> dict:
             stats["archived"] = result.rowcount  # type: ignore[attr-defined]
 
     return stats
+
 
 def ingest_events(site_id: int) -> dict:
     """Ingest all published events for a site into pgvector.

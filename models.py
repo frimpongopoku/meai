@@ -151,7 +151,7 @@ class Embedding(Base):
 
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     chunk_text: Mapped[str] = mapped_column(Text, nullable=False)
-    embedding: Mapped[list[float]] = mapped_column(Vector(1536))
+    embedding: Mapped[list[float]] = mapped_column(Vector(1024))
 
     embedding_model: Mapped[str] = mapped_column(String, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
