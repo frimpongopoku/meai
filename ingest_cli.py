@@ -19,6 +19,9 @@ def print_stats(label: str, stats: dict) -> None:
     print(f"    Unarchived: {stats['unarchived']}")
 
 
+from ingest import ingest_actions, ingest_events, ingest_testimonials
+
+
 def main():
     if len(sys.argv) < 2:
         print("Usage: uv run ingest_cli.py <site_id> [site_id ...]")
@@ -34,6 +37,9 @@ def main():
 
         testimonial_stats = ingest_testimonials(site_id)
         print_stats("Testimonials", testimonial_stats)
+
+        event_stats = ingest_events(site_id)
+        print_stats("Events", event_stats)
 
 
 if __name__ == "__main__":
