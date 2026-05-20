@@ -8,6 +8,7 @@ from sqlalchemy import select
 from db import db_session
 from embedding_client import embed_texts
 from models import Action, Embedding, Event, Testimonial
+from urllib.parse import urlparse
 
 
 @dataclass
@@ -17,6 +18,7 @@ class NewsletterContext:
     site_id: int
     community_name: str
     theme: str | None
+    site_url: str = ""
     featured_actions: list[Action] = field(default_factory=list)
     theme_actions: list[Action] = field(default_factory=list)
     testimonials_by_action: dict[str, list[Testimonial]] = field(default_factory=dict)
@@ -166,5 +168,13 @@ def gather_newsletter_context(
             .all()
         )
         context.upcoming_events = list(events)
+
+    # Derive the site URL from any action's URL (they all share the same base)
+    all_actions = context.featured_actions + context.theme_actions
+    if all_actions and all_actions[0].url:
+        # Action URLs look like: https://site.org/actions/action-slug
+        # We want: https://site.org/
+        parsed = urlparse(all_actions[0].url)
+        context.site_url = f"{parsed.scheme}://{parsed.netloc}/"
 
     return context

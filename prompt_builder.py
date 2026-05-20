@@ -37,6 +37,8 @@ OUTPUT_SCHEMA = """{
       "blurb": "string (one sentence)"
     }
   ],
+  "testimonials_page_url": "string or null (URL of the all-testimonials page from input)",
+  "events_page_url": "string or null (URL of the all-events page from input)",
   "closing": "string (2-3 sentences)"
 }"""
 
@@ -114,6 +116,13 @@ def build_user_prompt(ctx: NewsletterContext) -> str:
         sections.append("")
         for e in ctx.upcoming_events:
             sections.extend(_format_event(e))
+
+    # NEW: site section URLs for context
+    if ctx.site_url:
+        sections.append("## Section page URLs (for the newsletter footer)")
+        sections.append(f"- All testimonials: {ctx.site_url}testimonials/")
+        sections.append(f"- All events: {ctx.site_url}events/")
+        sections.append("")
 
     # Generation directive
     sections.extend(

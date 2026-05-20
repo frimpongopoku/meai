@@ -6,8 +6,10 @@ for the WordPress plugin (and any other client) to call.
 
 import os
 from datetime import datetime
+from datetime import timezone
 
 from dotenv import load_dotenv
+
 load_dotenv()
 
 from fastapi import FastAPI, Header, HTTPException
@@ -16,6 +18,15 @@ from pydantic import BaseModel
 from generate import generate_newsletter
 from ingest import ingest_actions, ingest_events, ingest_testimonials
 from embed import embed_actions, embed_events, embed_testimonials
+from sqlalchemy import select, func
+from db import db_session
+from models import Action, Event, Testimonial
+
+
+class FreshnessResponse(BaseModel):
+    site_id: int
+    last_synced_at: str | None
+    counts: dict
 
 
 app = FastAPI(title="MassEnergize AI Service", version="0.1.0")
@@ -37,6 +48,7 @@ def require_auth(api_key: str | None) -> None:
 
 
 # === Request/response models ===
+
 
 class GenerateRequest(BaseModel):
     site_id: int
@@ -62,6 +74,7 @@ class IngestResponse(BaseModel):
 
 
 # === Endpoints ===
+
 
 @app.get("/api/v1/health")
 def health():
@@ -123,5 +136,76 @@ def ingest(
             "actions": embed_action_stats,
             "testimonials": embed_testimonial_stats,
             "events": embed_event_stats,
+        },
+    )
+
+
+@app.get("/api/v1/freshness", response_model=FreshnessResponse)
+def freshness(
+    site_id: int,
+    x_api_key: str | None = Header(None, alias=API_KEY_HEADER),
+):
+    """When was this site's content last ingested?"""
+    require_auth(x_api_key)
+
+    with db_session() as session:
+        max_action = session.execute(
+            select(func.max(Action.ingested_at)).where(Action.site_id == site_id)
+        ).scalar()
+        max_testimonial = session.execute(
+            select(func.max(Testimonial.ingested_at)).where(
+                Testimonial.site_id == site_id
+            )
+        ).scalar()
+        max_event = session.execute(
+            select(func.max(Event.ingested_at)).where(Event.site_id == site_id)
+        ).scalar()
+
+        action_count = (
+            session.execute(
+                select(func.count(Action.id)).where(
+                    Action.site_id == site_id,
+                    Action.archived_at.is_(None),
+                )
+            ).scalar()
+            or 0
+        )
+        testimonial_count = (
+            session.execute(
+                select(func.count(Testimonial.id)).where(
+                    Testimonial.site_id == site_id,
+                    Testimonial.archived_at.is_(None),
+                )
+            ).scalar()
+            or 0
+        )
+        event_count = (
+            session.execute(
+                select(func.count(Event.id)).where(
+                    Event.site_id == site_id,
+                    Event.archived_at.is_(None),
+                )
+            ).scalar()
+            or 0
+        )
+
+    # Most recent of the three timestamps
+    timestamps = [t for t in [max_action, max_testimonial, max_event] if t is not None]
+    if timestamps:
+        most_recent = max(timestamps)
+        # Ensure UTC marker is present
+        if most_recent.tzinfo is None:
+            most_recent = most_recent.replace(tzinfo=timezone.utc)
+        last_synced = most_recent.isoformat()
+    else:
+        last_synced = None
+
+    return FreshnessResponse(
+        site_id=site_id,
+        last_synced_at=last_synced,
+        counts={
+            "actions": action_count,
+            "testimonials": testimonial_count,
+            "events": event_count,
         },
     )
