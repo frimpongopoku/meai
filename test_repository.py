@@ -13,6 +13,7 @@ if actions:
     a = actions[0]
     print(f"  First: {a.title}")
     print(f"  Featured: {a.is_featured}, Order: {a.display_order}")
+    print(f"  Image URL: {a.image_url}")
     print(f"  Classifications: {a.classifications}")
     print(f"  URL: {a.url}")
     print(f"  Desc preview: {a.description_text[:100]}...")

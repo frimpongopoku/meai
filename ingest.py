@@ -36,6 +36,7 @@ def _action_hash(wp_action: WPAction) -> str:
         wp_action.display_order,
         sorted(wp_action.classifications),
         wp_action.url,
+        wp_action.image_url or "",
     )
 
 
@@ -48,6 +49,7 @@ def _testimonial_hash(wp_testimonial: WPTestimonial) -> str:
         wp_testimonial.display_name or "",
         wp_testimonial.related_action_wp_post_id,
         wp_testimonial.display_order,
+        wp_testimonial.image_url or "",
     )
 
 
@@ -65,6 +67,7 @@ def _event_hash(wp_event: WPEvent) -> str:
         wp_event.organizer_emails or "",
         wp_event.event_url or "",
         wp_event.cost or "",
+        wp_event.image_url or "",
     )
 
 
@@ -125,6 +128,7 @@ def ingest_actions(site_id: int) -> dict:
                         is_featured=wp_action.is_featured,
                         display_order=wp_action.display_order,
                         classifications=wp_action.classifications,
+                        image_url=wp_action.image_url,
                         url=wp_action.url,
                         status=wp_action.status,
                         modified_at=wp_action.modified_at,
@@ -154,6 +158,7 @@ def ingest_actions(site_id: int) -> dict:
                     existing.is_featured = wp_action.is_featured
                     existing.display_order = wp_action.display_order
                     existing.classifications = wp_action.classifications
+                    existing.image_url = wp_action.image_url
                     existing.url = wp_action.url
                     existing.status = wp_action.status
                     existing.modified_at = wp_action.modified_at
@@ -252,6 +257,7 @@ def ingest_testimonials(site_id: int) -> dict:
                         related_action_wp_post_id=wp_testimonial.related_action_wp_post_id,
                         related_action_id=related_action_id,
                         display_order=wp_testimonial.display_order,
+                        image_url=wp_testimonial.image_url,
                         status=wp_testimonial.status,
                         modified_at=wp_testimonial.modified_at,
                         content_hash=new_hash,
@@ -278,6 +284,7 @@ def ingest_testimonials(site_id: int) -> dict:
                     )
                     existing.related_action_id = related_action_id
                     existing.display_order = wp_testimonial.display_order
+                    existing.image_url = wp_testimonial.image_url
                     existing.status = wp_testimonial.status
                     existing.modified_at = wp_testimonial.modified_at
                     existing.content_hash = new_hash
@@ -353,6 +360,7 @@ def ingest_events(site_id: int) -> dict:
                         venue_address=wp_event.venue_address,
                         organizer_names=wp_event.organizer_names,
                         organizer_emails=wp_event.organizer_emails,
+                        image_url=wp_event.image_url,
                         event_url=wp_event.event_url,
                         cost=wp_event.cost,
                         status=wp_event.status,
@@ -385,10 +393,18 @@ def ingest_events(site_id: int) -> dict:
                     existing.organizer_emails = wp_event.organizer_emails
                     existing.event_url = wp_event.event_url
                     existing.cost = wp_event.cost
+                    existing.image_url = wp_event.image_url
                     existing.status = wp_event.status
                     existing.modified_at = wp_event.modified_at
                     existing.content_hash = new_hash
                     existing.ingested_at = datetime.utcnow()
+                    # Invalidate this event's embeddings — content changed
+                    session.execute(
+                        delete(Embedding).where(
+                            Embedding.content_type == "event",
+                            Embedding.content_id == existing.id,
+                        )
+                    )
                     if not was_archived:
                         stats["updated"] += 1
 

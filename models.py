@@ -46,6 +46,7 @@ class Action(Base):
     )
 
     url: Mapped[str | None] = mapped_column(String)
+    image_url: Mapped[str | None] = mapped_column(String)
     status: Mapped[str] = mapped_column(String, nullable=False)
     modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -75,6 +76,7 @@ class Testimonial(Base):
     title: Mapped[str | None] = mapped_column(String)
     body_html: Mapped[str | None] = mapped_column(Text)
     body_text: Mapped[str | None] = mapped_column(Text)
+    image_url: Mapped[str | None] = mapped_column(String)
 
     submitted_by: Mapped[str | None] = mapped_column(String)
     display_name: Mapped[str | None] = mapped_column(String)
@@ -110,6 +112,7 @@ class Event(Base):
     title: Mapped[str] = mapped_column(String, nullable=False)
     description_html: Mapped[str | None] = mapped_column(Text)
     description_text: Mapped[str | None] = mapped_column(Text)
+    image_url: Mapped[str | None] = mapped_column(String)
 
     start_datetime_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     end_datetime_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

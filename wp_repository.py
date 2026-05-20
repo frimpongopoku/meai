@@ -30,6 +30,7 @@ class WPAction:
     is_featured: bool
     display_order: Optional[int]
     classifications: list[str]
+    image_url: Optional[str]
     url: str
     status: str
     modified_at: datetime
@@ -45,6 +46,7 @@ class WPTestimonial:
     submitted_by: Optional[str]
     display_name: Optional[str]
     related_action_wp_post_id: Optional[int]
+    image_url: Optional[str]
     display_order: Optional[int]
     status: str
     modified_at: datetime
@@ -57,6 +59,7 @@ class WPEvent:
     title: str
     description_html: str
     description_text: str
+    image_url: Optional[str]
     start_datetime_utc: Optional[datetime]
     end_datetime_utc: Optional[datetime]
     start_datetime_local: Optional[datetime]
@@ -131,6 +134,7 @@ def get_actions(site_id: int) -> list[WPAction]:
 
         action_ids = [row["ID"] for row in rows]
         classifications_map = _fetch_classifications(cur, site_id, action_ids)
+        image_url_map = _fetch_featured_image_urls(cur, site_id, action_ids)
         site_domain = _get_site_domain(cur, site_id)
 
     return [
@@ -145,6 +149,7 @@ def get_actions(site_id: int) -> list[WPAction]:
             deep_dive_html=row["deep_dive"],
             deep_dive_text=_strip_html(row["deep_dive"]),
             is_featured=row["is_featured"] == "1",
+            image_url=image_url_map.get(row["ID"]),
             display_order=int(row["display_order"]) if row["display_order"] else None,
             classifications=classifications_map.get(row["ID"], []),
             url=f"{site_domain}actions/{row['post_name']}",
@@ -182,6 +187,8 @@ def get_testimonials(site_id: int) -> list[WPTestimonial]:
     with wp_cursor() as cur:
         cur.execute(sql)
         rows = cur.fetchall()
+        testimonial_ids = [row["ID"] for row in rows]
+        image_url_map = _fetch_featured_image_urls(cur, site_id, testimonial_ids)
 
     return [
         WPTestimonial(
@@ -192,6 +199,7 @@ def get_testimonials(site_id: int) -> list[WPTestimonial]:
             body_text=_strip_html(row["post_content"]),
             submitted_by=row["submitted_by"],
             display_name=row["display_name"],
+            image_url=image_url_map.get(row["ID"]),
             related_action_wp_post_id=(
                 int(row["related_action"]) if row["related_action"] else None
             ),
@@ -240,6 +248,7 @@ def get_events(site_id: int) -> list[WPEvent]:
         # We'll batch this rather than N+1 querying.
         event_ids = [r["ID"] for r in event_rows]
         organizer_map: dict[int, list[int]] = {eid: [] for eid in event_ids}
+        image_url_map = _fetch_featured_image_urls(cur, site_id, event_ids)
 
         if event_ids:
             placeholders = ",".join(["%s"] * len(event_ids))
@@ -283,6 +292,7 @@ def get_events(site_id: int) -> list[WPEvent]:
                 end_datetime_utc=_parse_dt(row["end_utc"]),
                 start_datetime_local=_parse_dt(row["start_local"]),
                 end_datetime_local=_parse_dt(row["end_local"]),
+                image_url=image_url_map.get(row["ID"]),
                 timezone=row["tz"],
                 venue_name=venue["name"] if venue else None,
                 venue_address=venue["address"] if venue else None,
@@ -381,6 +391,79 @@ def _fetch_organizers(cur, site_id: int, organizer_ids: set[int]) -> dict[int, d
         row["ID"]: {"name": row["post_title"], "email": row["email"]}
         for row in cur.fetchall()
     }
+
+
+def _fetch_featured_image_urls(
+    cur,
+    site_id: int,
+    post_ids: list[int],
+) -> dict[int, str]:
+    """Resolve featured images for a batch of posts.
+
+    Returns {post_id: image_url}. Posts without featured images are absent
+    from the returned dict.
+
+    Two-step lookup:
+    1. From postmeta, find _thumbnail_id → attachment post ID
+    2. From the attachment's postmeta, find _wp_attached_file → relative path
+    3. Construct full URL from site domain + uploads sites path + relative path
+    """
+    if not post_ids:
+        return {}
+
+    posts_table = _table(site_id, "posts")
+    meta_table = _table(site_id, "postmeta")
+
+    # Step 1: get the thumbnail_id for each post
+    placeholders = ",".join(["%s"] * len(post_ids))
+    cur.execute(
+        f"""
+        SELECT post_id, meta_value
+        FROM {meta_table}
+        WHERE meta_key = '_thumbnail_id'
+          AND post_id IN ({placeholders})
+        """,
+        post_ids,
+    )
+    post_to_thumb = {row["post_id"]: int(row["meta_value"]) for row in cur.fetchall()}
+
+    if not post_to_thumb:
+        return {}
+
+    # Step 2: get _wp_attached_file for each thumbnail attachment
+    thumb_ids = list(set(post_to_thumb.values()))
+    thumb_placeholders = ",".join(["%s"] * len(thumb_ids))
+    cur.execute(
+        f"""
+        SELECT post_id, meta_value
+        FROM {meta_table}
+        WHERE meta_key = '_wp_attached_file'
+          AND post_id IN ({thumb_placeholders})
+        """,
+        thumb_ids,
+    )
+    thumb_to_file = {row["post_id"]: row["meta_value"] for row in cur.fetchall()}
+
+    # Step 3: get the site domain to construct URLs
+    cur.execute(
+        "SELECT domain FROM wp_blogs WHERE blog_id = %s",
+        (site_id,),
+    )
+    site_row = cur.fetchone()
+    if not site_row:
+        return {}
+    domain = site_row["domain"]
+
+    # Multisite uploads live under /wp-content/uploads/sites/{blog_id}/
+    uploads_base = f"https://{domain}/wp-content/uploads/sites/{site_id}/"
+
+    # Assemble: post_id → full image URL
+    result: dict[int, str] = {}
+    for post_id, thumb_id in post_to_thumb.items():
+        file_path = thumb_to_file.get(thumb_id)
+        if file_path:
+            result[post_id] = uploads_base + file_path
+    return result
 
 
 def _fetch_classifications(
