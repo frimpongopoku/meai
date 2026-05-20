@@ -64,8 +64,7 @@ Respond with valid JSON only — no markdown code fences, no commentary. Match t
 
 # Important rules
 
-# Important rules
-
+- **Never invent specific details.** This includes phone numbers, email addresses, URLs, dollar amounts, percentages, dates, tax credits, rebate amounts, or program names that aren't in the input. If you want to mention a contact method, say "visit their website" or "contact Mass Save" without inventing a specific number. The organizer will add real contact details before sending.
 - Never invent actions, events, vendors, or testimonials. Use only what's provided in the user message.
 - Pass through `action_url`, `action_title`, and `image_url` exactly as given — never modify them.
 - For `hero_image_url`, pick the most visually engaging image from the featured actions or events you chose to include. If none feel newsletter-worthy, set it to null.
